@@ -52,11 +52,13 @@ pub struct Cpu {
     v: [u8; 16],
     /// 16x16-bit stack
     stack: [u16; 16],
-    /// Special timer registers that are decremented
-    /// each processor cycle
-    timer1: u8,
-    timer2: u8,
-    /// 4 kB of RAM
+    /// Delay timer register
+    /// Decremented by 1 each cycle
+    dt: u8,
+    /// Sound timer register
+    /// Decremented by 1 each cycle
+    st: u8,
+    /// 4 kB (4096 bytes) of RAM
     ram: Ram,
     /// Display connected to the CPU
     pub display: Chip8Display,
@@ -74,6 +76,12 @@ pub struct Cpu {
     /// Used for CPU instructions that do different things
     /// depending on if a certain key is pressed
     pub pressed_keys: [bool; 16],
+    /// Holds CPU execution while true
+    /// used for an instruction that holds CPU execution
+    /// until a key is pressed
+    hold_flag: bool,
+    /// Variable that holds the loaded instruction in each cycle
+    inst: u16,
 }
 
 #[allow(dead_code)]
@@ -82,16 +90,26 @@ impl Cpu {
         Cpu {
             v: [0x00; 16],
             stack: [0_u16; 16],
-            timer1: 0x00,
-            timer2: 0x00,
+            dt: 0x00,
+            st: 0x00,
             ram: Ram::new(),
             display: Chip8Display::new(),
-            pc: 0x00,
+            pc: 0x0000,
             sp: 0x00,
             i: 0x0000,
             cycle: 0,
             pressed_keys: [false; 16],
+            hold_flag: false,
+            inst: 0x0000,
         }
+    }
+
+    // If any key is pressed Some with the key value is returned
+    // else None is retrurned
+    fn get_pressed_key(&self) -> Option<usize> {
+        self.pressed_keys
+            .iter()
+            .position(|&x| x == true)
     }
 
     // Returns the value ontop of the stack and
@@ -146,12 +164,160 @@ impl Cpu {
     // Executes a clock cycles, and executing instructions
     pub fn tick(&mut self) {
         // Decrement timer registers with wrapping
-        self.timer1 = self.timer1.overflowing_sub(1).0;
-        self.timer2 = self.timer2.overflowing_sub(1).0;
+        if !self.hold_flag {
+            // Get the two insruction bytes
+            let inst_hi = self.ram.data[self.pc as usize];
+            self.pc += 1;
+            let inst_lo = self.ram.data[self.pc as usize];
+            self.pc += 1;
+            self.inst = ((inst_hi as u16) << 8) | inst_lo as u16;
+            // Match and execute instruction function 
+            match (inst_hi & 0xF0) >> 4 {
+                0x0 => {
+                    if inst_lo == 0xE0 {
+                        self.cls();
+                    } else if inst_lo == 0xEE {
+                        self.ret();
+                    } else {
+                        let nnn = self.inst & 0x0FFF;
+                        self.sys(nnn);
+                    }
+                },
+                0x1 => {
+                    let nnn = self.inst & 0x0FFF;
+                    self.jmp(nnn);
+                },
+                0x2 => {
+                    let nnn = self.inst & 0x0FFF;
+                    self.call(nnn);
+                },
+                0x3 => {
+                    let kk = inst_lo;
+                    let x = inst_hi & 0x0F;
+                    self.se(x, kk);
+                },
+                0x4 => {
+                    let kk = inst_lo;
+                    let x = inst_hi & 0x0F;
+                    self.sne(x, kk);
+                },
+                0x5 => {
+                    let x = inst_hi & 0x0F;
+                    let y = (inst_lo & 0xF0) >> 4;
+                    self.sexy(x, y);
+                },
+                0x6 => {
+                    let x = inst_hi & 0x0F;
+                    let kk = inst_lo;
+                    self.ld(x, kk);
+                },
+                0x7 => {
+                    let x = inst_hi & 0x0F;
+                    let kk = inst_lo;
+                    self.add(x, kk);
+                },
+                // General purpose register instructions
+                // for arithmetic and logical operations
+                0x8 => {
+                    let x = inst_hi & 0x0F;
+                    let y = (inst_lo & 0xF0) >> 4;
+                    match inst_lo & 0x0F {
+                        0x0 => {
+                            self.ldxy(x, y);
+                        },
+                        0x1 => {
+                            self.or(x, y);
+                        },
+                        0x2 => {
+                            self.and(x, y);
+                        },
+                        0x3 => {
+                            self.xor(x, y);
+                        },
+                        0x4 => {
+                            self.adc(x, y);
+                        },
+                        0x5 => {
+                            self.sub(x, y);
+                        },
+                        0x6 => {
+                            self.shr(x);
+                        },
+                        0x7 => {
+                            self.subn(x, y);
+                        },
+                        0xE => {
+                            self.shl(x);
+                        },
+                        _ => self.ill(),
+                    }
+                },
+                0x9 => {
+                    let x = inst_hi & 0x0F;
+                    let y = (inst_lo & 0xF0) >> 4;
+                    self.snexy(x, y);
+                },
+                0xA => {
+                    let nnn = self.inst & 0x0FFF;
+                    self.ldi(nnn);
+                },
+                0xB => {
+                    let nnn = self.inst & 0x0FFF;
+                    self.jpv0(nnn);
+                },
+                0xF => {
+                    let x = inst_hi & 0x0F;
+                    match inst_lo {
+                        0x07 => {
+                            self.lddt(x);
+                        },
+                        0x0A => {
+                            match self.get_pressed_key() {
+                                Some(key) => {
+                                    self.ldk(x, key as u8);
+                                },
+                                None => self.hold_flag = true,
+                            }
+                        },
+                        _ => self.ill(),
+                    }
+                },
+                // Illegal instruction
+                _ => self.ill(),
+            }
+
+            self.dt = self.dt.overflowing_sub(1).0;
+            self.st = self.st.overflowing_sub(1).0;
+            self.cycle += 1;
+        } else {
+            match self.get_pressed_key() {
+                Some(key) => {
+                    // Fetch the value x from the last instruction
+                    // that was loaded before sleep
+                    let x = (self.inst & 0x0F00) >> 8; 
+                    self.ldk(x as u8, key as u8);
+                    self.hold_flag = false;
+                } 
+                None => {
+                    self.sleep();
+                }
+            }
+            self.sleep();
+        }
+    }
+
+    // No operation. CPU idles
+    fn sleep(&mut self) {
         self.cycle += 1;
     }
-    // Implement CPU instructions
 
+    //Illegal operation
+    fn ill(&mut self) {
+        self.cycle += 1;
+        panic!("Illegal instruction {:#06X} provided!", self.inst);
+    }
+
+    // Implement CPU instructions
     fn sys(&mut self, _addr: u16) {
         panic!("Not implemented on modern Chip-8 interpreters");
     }
@@ -373,4 +539,33 @@ impl Cpu {
             self.pc += 1;
         }
     }
+
+    // Skips the next instruction if a certain key is not pressed
+    fn sknp(&mut self, key: u8) {
+        if !self.pressed_keys[key as usize] {
+            self.pc += 2;
+        } else {
+            self.pc += 1;
+        }
+    }
+
+    // Loads the value if register Vx into the delay timer register
+    fn lddt(&mut self, vx: u8) {
+        self.dt = self.v[vx as usize];
+        self.pc += 1;
+    }
+
+    // Holds execution until a key is pressed,
+    // then stores the value of the key in Vx
+    // Holding of CPU execution is handled in the tick function
+    fn ldk(&mut self, vx: u8, key: u8) {
+        self.v[vx as usize] = key;
+        self.pc += 1;
+    }
+    
+}
+
+
+fn disassemble(input: String) -> Result<String, String> {
+    Err("Not yet implemented".to_string()) 
 }

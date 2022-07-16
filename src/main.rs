@@ -61,7 +61,9 @@ impl Chip8Display {
 
 struct GameState {
     cpu: cpu::Cpu,
+    // Number of CPU cycles/ticks executed
     cycles: u128,
+    // Step through CPU ticks, one a the time
     step_mode: bool,
 }
 
