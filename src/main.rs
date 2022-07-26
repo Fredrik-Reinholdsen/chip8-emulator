@@ -8,8 +8,7 @@ use ggez::{
 };
 
 const FPS: usize = 60;
-const CLOCK_SPEED: usize = 2_000_000;
-const TICKS_PER_FRAME: usize = FPS / CLOCK_SPEED + 1;
+const CLOCK_SPEED: f64 = 2.0e6;
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -70,7 +69,7 @@ struct GameState {
 impl GameState {
     fn new() -> Self {
         GameState {
-            cpu: cpu::Cpu::new(),
+            cpu: cpu::Cpu::new(CLOCK_SPEED),
             cycles: 0,
             step_mode: false,
         }
@@ -79,12 +78,15 @@ impl GameState {
 
 impl event::EventHandler<ggez::GameError> for GameState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        while ggez::timer::check_update_time(ctx, TICKS_PER_FRAME as u32) {
+        while ggez::timer::check_update_time(ctx, (1.0 / CLOCK_SPEED) as u32) {
             if !self.step_mode {
                 self.cpu.tick();
                 self.cycles += 1;
             }
-            self.draw(ctx)?;
+            let cycles_per_frame = ((1 / FPS) as f64 / (1.0 / CLOCK_SPEED)).round() as u128; 
+            if self.cycles % cycles_per_frame == 0 {
+                self.draw(ctx)?;
+            }
         }
 
         Ok(())
