@@ -18,7 +18,7 @@ const ETI_START: u16 = 0x600;
 fn byte_to_bools(b: u8) -> [bool; 8] {
     let mut output = [false; 8];
     for i in 0..8 {
-        output[i] = (b >> (7 - i)) & 0x01 != 0;
+        output[i] = (b >> (7 - i)) & 0x01 == 1;
     }
     output
 }
@@ -42,29 +42,29 @@ impl Ram {
         // Digit 3
         data[15..20].copy_from_slice(&[0xF0, 0x10, 0xF0, 0x10, 0xF0]);
         // Digit 4
-        data[15..20].copy_from_slice(&[0x90, 0x90, 0xF0, 0x10, 0x10]);
+        data[20..25].copy_from_slice(&[0x90, 0x90, 0xF0, 0x10, 0x10]);
         // Digit 5
-        data[20..25].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x10, 0xF0]);
+        data[25..30].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x10, 0xF0]);
         // Digit 6
-        data[25..30].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x90, 0xF0]);
+        data[30..35].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x90, 0xF0]);
         // Digit 7
-        data[30..35].copy_from_slice(&[0xF0, 0x10, 0x20, 0x40, 0x40]);
+        data[40..45].copy_from_slice(&[0xF0, 0x10, 0x20, 0x40, 0x40]);
         // Digit 8
-        data[35..40].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0xF0]);
+        data[45..50].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0xF0]);
         // Digit 9
-        data[40..45].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x10, 0xF0]);
+        data[50..55].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x10, 0xF0]);
         // Digit A
-        data[45..50].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0x90]);
+        data[55..60].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0x90]);
         // Digit B
-        data[50..55].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
-        // Digit C
-        data[55..60].copy_from_slice(&[0xF0, 0x80, 0x80, 0x80, 0xF0]);
-        // Digit D
         data[60..65].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
+        // Digit C
+        data[65..70].copy_from_slice(&[0xF0, 0x80, 0x80, 0x80, 0xF0]);
+        // Digit D
+        data[70..75].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
         // Digit E
-        data[70..75].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
+        data[80..85].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
         // Digit F
-        data[75..80].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]);
+        data[85..90].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]);
         Ram { data }
     }
 }
@@ -144,20 +144,24 @@ impl Cpu {
         }
     }
 
-    fn nnn(opcode: u16) -> u16 {
-        opcode & 0x0FFF
+    fn nnn(&mut self) -> u16 {
+        self.inst & 0x0FFF
     }
 
-    fn x(opcode: u16) -> u8 {
-        (opcode & 0x0F00 >> 8) as u8
+    fn x(&mut self) -> u8 {
+        ((self.inst & 0x0F00) >> 8) as u8
     }
 
-    fn y(opcode: u16) -> u8 {
-        (opcode & 0x00F0 >> 8) as u8
+    fn y(&mut self) -> u8 {
+        ((self.inst & 0x00F0) >> 4) as u8
     }
 
-    fn kk(opcode: u16) -> u8 {
-        (opcode & 0x00FF) as u8
+    fn kk(&mut self) -> u8 {
+        (self.inst & 0x00FF) as u8
+    }
+
+    fn n(&mut self) -> u8 {
+        (self.inst & 0x000F) as u8
     }
 
     pub fn core_dump(&self) {
@@ -278,48 +282,48 @@ impl Cpu {
                     } else if inst_lo == 0xEE {
                         self.ret();
                     } else {
-                        let nnn = self.inst & 0x0FFF;
+                        let nnn = self.nnn();
                         self.sys(nnn);
                     }
                 }
                 0x1 => {
-                    let nnn = self.inst & 0x0FFF;
+                    let nnn = self.nnn();
                     self.jmp(nnn);
                 }
                 0x2 => {
-                    let nnn = self.inst & 0x0FFF;
+                    let nnn = self.nnn();
                     self.call(nnn);
                 }
                 0x3 => {
-                    let kk = inst_lo;
-                    let x = inst_hi & 0x0F;
+                    let kk = self.kk();
+                    let x = self.x();
                     self.se(x, kk);
                 }
                 0x4 => {
-                    let kk = inst_lo;
-                    let x = inst_hi & 0x0F;
+                    let kk = self.kk();
+                    let x = self.x();
                     self.sne(x, kk);
                 }
                 0x5 => {
-                    let x = inst_hi & 0x0F;
-                    let y = (inst_lo & 0xF0) >> 4;
+                    let x = self.x();
+                    let y = self.y();
                     self.sexy(x, y);
                 }
                 0x6 => {
-                    let x = inst_hi & 0x0F;
-                    let kk = inst_lo;
+                    let kk = self.kk();
+                    let x = self.x();
                     self.ld(x, kk);
                 }
                 0x7 => {
-                    let x = inst_hi & 0x0F;
-                    let kk = inst_lo;
+                    let kk = self.kk();
+                    let x = self.x();
                     self.add(x, kk);
                 }
                 // General purpose register instructions
                 // for arithmetic and logical operations
                 0x8 => {
-                    let x = inst_hi & 0x0F;
-                    let y = (inst_lo & 0xF0) >> 4;
+                    let x = self.x();
+                    let y = self.y();
                     match inst_lo & 0x0F {
                         0x0 => self.ldxy(x, y),
                         0x1 => self.or(x, y),
@@ -334,31 +338,31 @@ impl Cpu {
                     }
                 }
                 0x9 => {
-                    let x = inst_hi & 0x0F;
-                    let y = (inst_lo & 0xF0) >> 4;
+                    let x = self.x();
+                    let y = self.y();
                     self.snexy(x, y);
                 }
                 0xA => {
-                    let nnn = self.inst & 0x0FFF;
+                    let nnn = self.nnn();
                     self.ldi(nnn);
                 }
                 0xB => {
-                    let nnn = self.inst & 0x0FFF;
+                    let nnn = self.nnn();
                     self.jpv0(nnn);
                 }
                 0xC => {
-                    let x = inst_hi & 0x0F;
-                    let kk = inst_lo;
+                    let kk = self.kk();
+                    let x = self.x();
                     self.rnd(x, kk);
                 }
                 0xD => {
-                    let x = inst_hi & 0x0F;
-                    let y = (inst_lo & 0xF0) >> 4;
-                    let n = inst_lo & 0x0F;
+                    let x = self.x();
+                    let y = self.y();
+                    let n = self.n();
                     self.drw(x, y, n);
                 }
                 0xE => {
-                    let x = inst_hi & 0x0F;
+                    let x = self.x();
                     match inst_lo {
                         0x9E => self.skp(x),
                         0xA1 => self.sknp(x),
@@ -366,7 +370,7 @@ impl Cpu {
                     }
                 }
                 0xF => {
-                    let x = inst_hi & 0x0F;
+                    let x = self.x();
                     match inst_lo {
                         0x07 => self.ldvdt(x),
                         0x0A => match self.get_pressed_key() {
@@ -393,7 +397,7 @@ impl Cpu {
                 Some(key) => {
                     // Fetch the value x from the last instruction
                     // that was loaded before sleep
-                    let x = (self.inst & 0x0F00) >> 8;
+                    let x = self.x();
                     self.ldk(x as u8, key as u8);
                     self.hold_flag = false;
                 }
@@ -515,15 +519,15 @@ impl Cpu {
         }
     }
 
-    // Subtracts Vy to Vx. If overflow occurs Vf is set to 1
-    // to indicate carry
+    // Subtracts Vy to Vx. If Vx > Vy, Vf is set to 1,
+    // otherwise 0. Result is stored in Vx
     fn sub(&mut self, vx: u8, vy: u8) {
         let (ret, carry) = self.v[vx as usize].overflowing_sub(self.v[vy as usize]);
         self.v[vx as usize] = ret;
         if carry {
-            self.v[0xF] = 1;
-        } else {
             self.v[0xF] = 0;
+        } else {
+            self.v[0xF] = 1;
         }
     }
 
@@ -534,15 +538,15 @@ impl Cpu {
         self.v[vx as usize] = self.v[vx as usize] >> 1;
     }
 
-    // Subtracts Vx from Vy. If overflow occurs Vf is set to 1
-    // to indicate carry. Result is stored in Vx
+    // Subtracts Vx from Vy. If Vy > Vx, Vf is set to 1
+    // otherwise Vf is set to 0. Result is stored in Vx
     fn subn(&mut self, vx: u8, vy: u8) {
         let (ret, carry) = self.v[vy as usize].overflowing_sub(self.v[vx as usize]);
         self.v[vx as usize] = ret;
         if carry {
-            self.v[0xF] = 1;
-        } else {
             self.v[0xF] = 0;
+        } else {
+            self.v[0xF] = 1;
         }
     }
 
@@ -581,27 +585,16 @@ impl Cpu {
     // starting from coordinates (Vx, Vy).
     // Sprites that crosses the edge screen will be wrapped to the over side
     fn drw(&mut self, vx: u8, vy: u8, n: u8) {
-        if n > 15 {
-            panic!("Invalid operation, maximum sprite size is 15!");
-        }
         // Flag used to indicate if any pixels on
         // the screen are overwritten
         let mut flag: bool = false;
         for i in (0..n as usize).into_iter() {
             let byte = self.ram.data[self.i as usize + i];
             // Wrap y-cordinate if sprite goes off screen
-            let y = if self.v[vy as usize] as usize + i >= DISPLAY_HEIGHT {
-                self.v[vy as usize] as usize + i - DISPLAY_HEIGHT
-            } else {
-                self.v[vy as usize] as usize + i
-            };
+            let y = (self.v[vy as usize] as usize + i) % DISPLAY_HEIGHT;
             for (j, bit) in byte_to_bools(byte).iter().enumerate() {
                 // Wrap x-coordinate if it goes off screen
-                let x = if self.v[vx as usize] as usize + j >= DISPLAY_WIDTH {
-                    self.v[vx as usize] as usize + j - DISPLAY_WIDTH
-                } else {
-                    self.v[vx as usize] as usize + j
-                };
+                let x = (self.v[vx as usize] as usize + j) % DISPLAY_WIDTH;
                 // Set the flag to true if XORing true and true
                 if self.display.screen[y][x] && *bit {
                     flag = true;
@@ -618,15 +611,15 @@ impl Cpu {
     }
 
     // Skips the next instruction if the specified key is currently held
-    fn skp(&mut self, key: u8) {
-        if self.pressed_keys[key as usize] {
+    fn skp(&mut self, vx: u8) {
+        if self.pressed_keys[self.v[vx as usize] as usize] {
             self.pc += 2;
         }
     }
 
     // Skips the next instruction if a certain key is not pressed
-    fn sknp(&mut self, key: u8) {
-        if !self.pressed_keys[key as usize] {
+    fn sknp(&mut self, vx: u8) {
+        if !self.pressed_keys[self.v[vx as usize] as usize] {
             self.pc += 2;
         }
     }
@@ -673,15 +666,15 @@ impl Cpu {
     fn ldbcd(&mut self, vx: u8) {
         let idx = self.i as usize;
         self.ram.data[idx] = (self.v[vx as usize] as f32 / 100.0).floor() as u8;
-        self.ram.data[idx] = ((self.v[vx as usize] % 100) as f32 / 10.0).floor() as u8;
-        self.ram.data[idx] = self.v[vx as usize] % 10;
+        self.ram.data[idx + 1] = ((self.v[vx as usize] % 100) as f32 / 10.0).floor() as u8;
+        self.ram.data[idx + 2] = self.v[vx as usize] % 10;
     }
 
     // Copies register V0 through Vx into RAM, starting at
     // the address strored in I
     fn cpvi(&mut self, vx: u8) {
-        for i in 0..vx as usize + 1 {
-            self.ram.data[self.i as usize + i] = self.v[i];
+        for j in 0..vx as usize + 1 {
+            self.ram.data[self.i as usize + j] = self.v[j];
         }
     }
 
@@ -695,4 +688,8 @@ impl Cpu {
 
 fn disassemble(input: String) -> Result<String, String> {
     Err("Not yet implemented".to_string())
+}
+
+fn opcode_to_string() -> String {
+    panic!("Not yet implemented!"); 
 }

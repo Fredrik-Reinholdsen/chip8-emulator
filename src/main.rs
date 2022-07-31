@@ -9,7 +9,7 @@ use ggez::{
 };
 
 const FPS: usize = 60;
-const CLOCK_SPEED: f64 = 1e3;
+const CLOCK_SPEED: f64 = 500.0;
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -103,21 +103,20 @@ impl GameState {
 
 impl event::EventHandler<ggez::GameError> for GameState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        while ggez::timer::check_update_time(ctx, CLOCK_SPEED as u32) {
-            for (i, key) in KEYS.iter().enumerate() {
-                self.cpu.pressed_keys[i] = is_key_pressed(ctx, *key);
-            }
-            if !self.step_mode {
+        for (i, key) in KEYS.iter().enumerate() {
+            self.cpu.pressed_keys[i] = is_key_pressed(ctx, *key);
+        }
+        if !self.step_mode {
+            while ggez::timer::check_update_time(ctx, CLOCK_SPEED as u32) {
                 self.cpu.tick();
                 self.cycles += 1;
-            }
-            let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / CLOCK_SPEED)).round() as u128;
-            if self.cycles % cycles_per_frame == 0 {
-                self.draw(ctx)?;
-            }
         }
-        ggez::timer::yield_now();
-        Ok(())
+        let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / CLOCK_SPEED)).round() as u128;
+        if self.cycles % cycles_per_frame == 0 {
+            self.draw(ctx)?;
+        }
+    }
+    Ok(())
     }
 
     /// draw is where we should actually render the game's current state.
