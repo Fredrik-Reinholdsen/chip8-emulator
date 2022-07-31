@@ -7,6 +7,8 @@
  */
 use crate::{Chip8Display, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rand::Rng;
+use std::fs::File;
+use std::io::Read;
 
 const PROGRAM_START: u16 = 0x200;
 const ETI_START: u16 = 0x600;
@@ -30,7 +32,7 @@ impl Ram {
     pub fn new() -> Self {
         // Initializes the RAM, as all zeros except for 0x00 t0 0x1FF
         // which are initialized to hold sprites for hex digits 0 to F
-        let mut data =  [0_u8; 4096];
+        let mut data = [0_u8; 4096];
         // Digit 0
         data[0..5].copy_from_slice(&[0xF0, 0x90, 0x90, 0x90, 0xF0]);
         // Digit 1
@@ -63,10 +65,7 @@ impl Ram {
         data[70..75].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
         // Digit F
         data[75..80].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]);
-        Ram{
-            data,
-        }
-
+        Ram { data }
     }
 }
 
@@ -109,7 +108,7 @@ pub struct Cpu {
     /// Special 16-bit register
     i: u16,
     /// Keeps track if which cycle the CPU is on
-    cycle: u64,
+    pub cycle: u64,
     /// The clock speed of the device in Hz
     clock_speed: f64,
     /// A vector that contains all currently held keys.
@@ -134,7 +133,7 @@ impl Cpu {
             st: 0x00,
             ram: Ram::new(),
             display: Chip8Display::new(),
-            pc: 0x0000,
+            pc: PROGRAM_START,
             sp: 0x00,
             i: 0x0000,
             cycle: 0,
@@ -143,6 +142,54 @@ impl Cpu {
             hold_flag: false,
             inst: 0x0000,
         }
+    }
+
+    fn nnn(opcode: u16) -> u16 {
+        opcode & 0x0FFF
+    }
+
+    fn x(opcode: u16) -> u8 {
+        (opcode & 0x0F00 >> 8) as u8
+    }
+
+    fn y(opcode: u16) -> u8 {
+        (opcode & 0x00F0 >> 8) as u8
+    }
+
+    fn kk(opcode: u16) -> u8 {
+        (opcode & 0x00FF) as u8
+    }
+
+    pub fn core_dump(&self) {
+        println!("ERROR!\n Core dump:\n\tCycles: {}", self.cycle);
+        println!("\tStack Pointer: {}", self.sp);
+        self.stack_print();
+        self.ram_print();
+    }
+    //Resets the entire CPU to its initial state
+    pub fn reset(&mut self) {
+        self.v = [0x00; 16];
+        self.stack = [0; 16];
+        self.dt = 0x00;
+        self.sp = 0x00;
+        self.pc = PROGRAM_START;
+        self.st = 0x00;
+        self.i = 0x00;
+        self.cycle = 0;
+        self.pressed_keys = [false; 16];
+        self.hold_flag = false;
+        self.display = Chip8Display::new();
+        self.ram = Ram::new();
+    }
+
+    //Loads a chip 8 ROM into memory and resets the CPU
+    pub fn load_rom(&mut self, path: &str) -> std::io::Result<()> {
+        self.reset();
+        let mut file = File::open(path)?;
+        let mut contents: Vec<u8> = vec![];
+        file.read_to_end(&mut contents)?;
+        self.ram.data[0x200..0x200 + contents.len()].clone_from_slice(&contents);
+        Ok(())
     }
 
     // If any key is pressed Some with the key value is returned
@@ -158,8 +205,8 @@ impl Cpu {
         if self.sp == 0 {
             panic!("Stack underflow!");
         } else {
-            let ret_val = self.stack[self.sp as usize];
             self.sp -= 1;
+            let ret_val = self.stack[self.sp as usize];
             ret_val
         }
     }
@@ -170,8 +217,8 @@ impl Cpu {
         if self.sp == 16 {
             panic!("Stack overflow!");
         } else {
-            self.sp += 1;
             self.stack[self.sp as usize] = val;
+            self.sp += 1;
         }
     }
 
@@ -206,7 +253,7 @@ impl Cpu {
     pub fn update_timers(&mut self) {
         if self.dt > 0 {
             self.dt -= 1;
-        } 
+        }
         if self.st > 0 {
             self.st -= 1;
         }
@@ -298,7 +345,7 @@ impl Cpu {
                 0xB => {
                     let nnn = self.inst & 0x0FFF;
                     self.jpv0(nnn);
-                },
+                }
                 0xC => {
                     let x = inst_hi & 0x0F;
                     let kk = inst_lo;
@@ -317,7 +364,6 @@ impl Cpu {
                         0xA1 => self.sknp(x),
                         _ => self.ill(),
                     }
-                    
                 }
                 0xF => {
                     let x = inst_hi & 0x0F;
@@ -328,7 +374,7 @@ impl Cpu {
                                 self.ldk(x, key as u8);
                             }
                             None => self.hold_flag = true,
-                        }
+                        },
                         0x15 => self.lddt(x),
                         0x18 => self.ldst(x),
                         0x1E => self.addi(x),
@@ -342,7 +388,6 @@ impl Cpu {
                 // Illegal instruction
                 _ => self.ill(),
             }
-
         } else {
             match self.get_pressed_key() {
                 Some(key) => {
@@ -373,19 +418,21 @@ impl Cpu {
 
     //Illegal operation
     fn ill(&mut self) {
-        self.cycle += 1;
-        panic!("Illegal instruction {:#06X} provided!", self.inst);
+        self.core_dump();
+        panic!(
+            "Illegal instruction {:#06X} provided! Dumping core!",
+            self.inst
+        );
     }
 
     // Implement CPU instructions
-    fn sys(&mut self, _addr: u16) {
-        panic!("Not implemented on modern Chip-8 interpreters");
+    fn sys(&mut self, addr: u16) {
+        self.pc = addr;
     }
 
     // Clears the display
     fn cls(&mut self) {
         self.display.clear();
-        self.pc += 1;
     }
 
     // Sets the program counter to the address value ontop of
@@ -409,8 +456,6 @@ impl Cpu {
     fn se(&mut self, vx: u8, byte: u8) {
         if self.v[vx as usize] == byte {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
@@ -418,8 +463,6 @@ impl Cpu {
     fn sne(&mut self, vx: u8, byte: u8) {
         if self.v[vx as usize] != byte {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
@@ -427,45 +470,37 @@ impl Cpu {
     fn sexy(&mut self, vx: u8, vy: u8) {
         if self.v[vx as usize] == self.v[vy as usize] {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
     // Puts value into register Vx
     fn ld(&mut self, vx: u8, byte: u8) {
         self.v[vx as usize] = byte;
-        self.pc += 1;
     }
 
     // Adds kk to the register Vx
     fn add(&mut self, vx: u8, byte: u8) {
         self.v[vx as usize] = self.v[vx as usize].overflowing_add(byte).0;
-        self.pc += 1;
     }
 
     // Sets Vx = Vy
     fn ldxy(&mut self, vx: u8, vy: u8) {
         self.v[vx as usize] = self.v[vy as usize];
-        self.pc += 1;
     }
 
     // Sets Vx = Vx OR Vy
     fn or(&mut self, vx: u8, vy: u8) {
         self.v[vx as usize] |= self.v[vy as usize];
-        self.pc += 1;
     }
 
     // Sets Vx = Vx AND Vy
     fn and(&mut self, vx: u8, vy: u8) {
         self.v[vx as usize] &= self.v[vy as usize];
-        self.pc += 1;
     }
 
     // Sets Vx = Vx XOR Vy
     fn xor(&mut self, vx: u8, vy: u8) {
         self.v[vx as usize] ^= self.v[vy as usize];
-        self.pc += 1;
     }
 
     // Adds Vy to Vx. If overflow occurs Vf is set to 1
@@ -478,7 +513,6 @@ impl Cpu {
         } else {
             self.v[0xF] = 0;
         }
-        self.pc += 1;
     }
 
     // Subtracts Vy to Vx. If overflow occurs Vf is set to 1
@@ -491,7 +525,6 @@ impl Cpu {
         } else {
             self.v[0xF] = 0;
         }
-        self.pc += 1;
     }
 
     // The least significant bit of Vx is stored in Vf
@@ -499,7 +532,6 @@ impl Cpu {
     fn shr(&mut self, vx: u8) {
         self.v[0xF] = self.v[vx as usize] & 0x01;
         self.v[vx as usize] = self.v[vx as usize] >> 1;
-        self.pc += 1;
     }
 
     // Subtracts Vx from Vy. If overflow occurs Vf is set to 1
@@ -512,30 +544,25 @@ impl Cpu {
         } else {
             self.v[0xF] = 0;
         }
-        self.pc += 1;
     }
 
     // The significant bit of Vx is stored in Vf
     // and Vx is then left-shifted by 1 (multiplied by 2)
     fn shl(&mut self, vx: u8) {
-        self.v[0xF] = self.v[vx as usize] & 0x80;
+        self.v[0xF] = (self.v[vx as usize] & 0x80) >> 7;
         self.v[vx as usize] = self.v[vx as usize] << 1;
-        self.pc += 1;
     }
 
     // Skips the next instruction if Vx != Vy
     fn snexy(&mut self, vx: u8, vy: u8) {
         if self.v[vx as usize] != self.v[vy as usize] {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
     // Loads the 16-bit address value into the I register
     fn ldi(&mut self, addrs: u16) {
         self.i = addrs;
-        self.pc += 1;
     }
 
     // Sets PC to the provided address + V0
@@ -547,7 +574,6 @@ impl Cpu {
     fn rnd(&mut self, vx: u8, byte: u8) {
         let mut rng = rand::thread_rng();
         self.v[vx as usize] = rng.gen::<u8>() & byte;
-        self.pc += 1;
     }
 
     // Reads n and n-byte sprite from memory starting from the
@@ -561,16 +587,17 @@ impl Cpu {
         // Flag used to indicate if any pixels on
         // the screen are overwritten
         let mut flag: bool = false;
-        for (i, byte) in (0..n).into_iter().enumerate() {
+        for i in (0..n as usize).into_iter() {
+            let byte = self.ram.data[self.i as usize + i];
             // Wrap y-cordinate if sprite goes off screen
-            let y = if self.v[vy as usize] as usize + i > DISPLAY_HEIGHT {
+            let y = if self.v[vy as usize] as usize + i >= DISPLAY_HEIGHT {
                 self.v[vy as usize] as usize + i - DISPLAY_HEIGHT
             } else {
                 self.v[vy as usize] as usize + i
             };
             for (j, bit) in byte_to_bools(byte).iter().enumerate() {
                 // Wrap x-coordinate if it goes off screen
-                let x = if self.v[vx as usize] as usize + j > DISPLAY_WIDTH {
+                let x = if self.v[vx as usize] as usize + j >= DISPLAY_WIDTH {
                     self.v[vx as usize] as usize + j - DISPLAY_WIDTH
                 } else {
                     self.v[vx as usize] as usize + j
@@ -588,15 +615,12 @@ impl Cpu {
         } else {
             self.v[0xF] = 0;
         }
-        self.pc += 1;
     }
 
     // Skips the next instruction if the specified key is currently held
     fn skp(&mut self, key: u8) {
         if self.pressed_keys[key as usize] {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
@@ -604,15 +628,12 @@ impl Cpu {
     fn sknp(&mut self, key: u8) {
         if !self.pressed_keys[key as usize] {
             self.pc += 2;
-        } else {
-            self.pc += 1;
         }
     }
 
     // Loads the value of the delay timer into register Vx
     fn ldvdt(&mut self, vx: u8) {
         self.v[vx as usize] = self.dt;
-        self.pc += 1;
     }
 
     // Holds execution until a key is pressed,
@@ -620,25 +641,21 @@ impl Cpu {
     // Holding of CPU execution is handled in the tick function
     fn ldk(&mut self, vx: u8, key: u8) {
         self.v[vx as usize] = key;
-        self.pc += 1;
     }
 
     // Loads the value of Vx into the the delay timer
     fn lddt(&mut self, vx: u8) {
         self.dt = self.v[vx as usize];
-        self.pc += 1;
     }
-    
+
     // Loads the value of Vx into the sound timer register
     fn ldst(&mut self, vx: u8) {
         self.st = self.v[vx as usize];
-        self.pc += 1;
     }
 
     // Adds the contents of register Vx to the 16-bit I register
     fn addi(&mut self, vx: u8) {
         self.i = self.i.overflowing_add(self.v[vx as usize] as u16).0;
-        self.pc += 1;
     }
 
     // Loads the RAM location of the digit stored in Vx into
@@ -646,12 +663,11 @@ impl Cpu {
     fn ldsi(&mut self, vx: u8) {
         if self.v[vx as usize] <= 0xF {
             self.i = 5 * self.v[vx as usize] as u16;
-            self.pc += 1;
         } else {
             panic!("Tried to load sprite of an invalid digit!");
         }
     }
-    
+
     // Stores the BCD representation of the value in Vx, in I
     // (hudreds in I, tens in I+1, and ones in I+2)
     fn ldbcd(&mut self, vx: u8) {
@@ -659,26 +675,22 @@ impl Cpu {
         self.ram.data[idx] = (self.v[vx as usize] as f32 / 100.0).floor() as u8;
         self.ram.data[idx] = ((self.v[vx as usize] % 100) as f32 / 10.0).floor() as u8;
         self.ram.data[idx] = self.v[vx as usize] % 10;
-        self.pc += 1;
     }
 
     // Copies register V0 through Vx into RAM, starting at
     // the address strored in I
     fn cpvi(&mut self, vx: u8) {
-        for i in 0..(self.v[vx as usize] as usize + 1) {
+        for i in 0..vx as usize + 1 {
             self.ram.data[self.i as usize + i] = self.v[i];
         }
-        self.pc += 1;
     }
 
     // Copies values from RAM into registers V0 through Vx
     fn ldiv(&mut self, vx: u8) {
-        for j in 0..vx as usize {
+        for j in 0..vx as usize + 1 {
             self.v[j] = self.ram.data[self.i as usize + j];
         }
-        self.pc += 1;
     }
-
 }
 
 fn disassemble(input: String) -> Result<String, String> {

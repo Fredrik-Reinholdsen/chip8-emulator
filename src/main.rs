@@ -1,14 +1,15 @@
 pub mod cpu;
 
+use cpu::Cpu;
 use ggez::{
     event, graphics,
     graphics::{DrawParam, Drawable},
-    input::keyboard::{KeyCode, KeyMods},
+    input::keyboard::{is_key_pressed, KeyCode, KeyMods},
     Context, GameResult,
 };
 
 const FPS: usize = 60;
-const CLOCK_SPEED: f64 = 2.0e6;
+const CLOCK_SPEED: f64 = 1e3;
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -17,11 +18,29 @@ const PIXEL_SIZE: (f32, f32) = (
     SCREEN_SIZE.0 / DISPLAY_WIDTH as f32,
     SCREEN_SIZE.1 / DISPLAY_HEIGHT as f32,
 );
+const KEYS: [KeyCode; 16] = [
+    KeyCode::Key1,
+    KeyCode::Key2,
+    KeyCode::Key3,
+    KeyCode::Key4,
+    KeyCode::Q,
+    KeyCode::W,
+    KeyCode::E,
+    KeyCode::R,
+    KeyCode::A,
+    KeyCode::S,
+    KeyCode::D,
+    KeyCode::F,
+    KeyCode::Z,
+    KeyCode::X,
+    KeyCode::C,
+    KeyCode::V,
+];
 
 // Emulates the Chip8's attached 64x32 display
 
 // CHip8 keyboard consists of 16 different keys,
-// ranging from 0 to F 
+// ranging from 0 to F
 pub struct Chip8Display {
     screen: [[bool; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
 }
@@ -49,7 +68,8 @@ impl Chip8Display {
                         graphics::DrawMode::fill(),
                         [x, y, PIXEL_SIZE.0, PIXEL_SIZE.1].into(),
                         [1.0, 1.0, 1.0, 1.0].into(),
-                    ).expect("Failed to create pixel mesh!");
+                    )
+                    .expect("Failed to create pixel mesh!");
                     graphics::draw(ctx, &rect, DrawParam::new()).expect("Failed to draw display!");
                 }
             });
@@ -68,8 +88,13 @@ struct GameState {
 
 impl GameState {
     fn new() -> Self {
+        let mut cpu = Cpu::new(CLOCK_SPEED);
+        match cpu.load_rom("roms/Pong (alt).ch8") {
+            Ok(..) => {}
+            Err(e) => panic!("Failed to load ROM!\n{}", e),
+        }
         GameState {
-            cpu: cpu::Cpu::new(CLOCK_SPEED),
+            cpu,
             cycles: 0,
             step_mode: false,
         }
@@ -78,17 +103,20 @@ impl GameState {
 
 impl event::EventHandler<ggez::GameError> for GameState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        while ggez::timer::check_update_time(ctx, (1.0 / CLOCK_SPEED) as u32) {
+        while ggez::timer::check_update_time(ctx, CLOCK_SPEED as u32) {
+            for (i, key) in KEYS.iter().enumerate() {
+                self.cpu.pressed_keys[i] = is_key_pressed(ctx, *key);
+            }
             if !self.step_mode {
                 self.cpu.tick();
                 self.cycles += 1;
             }
-            let cycles_per_frame = ((1 / FPS) as f64 / (1.0 / CLOCK_SPEED)).round() as u128; 
+            let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / CLOCK_SPEED)).round() as u128;
             if self.cycles % cycles_per_frame == 0 {
                 self.draw(ctx)?;
             }
         }
-
+        ggez::timer::yield_now();
         Ok(())
     }
 
@@ -98,9 +126,7 @@ impl event::EventHandler<ggez::GameError> for GameState {
         graphics::clear(ctx, [0.1, 0.1, 0.15, 1.0].into());
         self.cpu.display.draw(ctx)?;
         //self.cpu.display.draw(&mut canvas);
-        graphics::present(ctx)?;
-        ggez::timer::yield_now();
-        Ok(())
+        graphics::present(ctx)
     }
 
     /// key_down_event gets fired when a key gets pressed.
@@ -112,22 +138,6 @@ impl event::EventHandler<ggez::GameError> for GameState {
         _repeat: bool,
     ) {
         match keycode {
-            KeyCode::Key1 => self.cpu.pressed_keys[0] = true,
-            KeyCode::Key2 => self.cpu.pressed_keys[1] = true,
-            KeyCode::Key3 => self.cpu.pressed_keys[2] = true,
-            KeyCode::Key4 => self.cpu.pressed_keys[3] = true,
-            KeyCode::Q => self.cpu.pressed_keys[4] = true,
-            KeyCode::W => self.cpu.pressed_keys[5] = true,
-            KeyCode::E => self.cpu.pressed_keys[6] = true,
-            KeyCode::R => self.cpu.pressed_keys[7] = true,
-            KeyCode::A => self.cpu.pressed_keys[8] = true,
-            KeyCode::S => self.cpu.pressed_keys[9] = true,
-            KeyCode::D => self.cpu.pressed_keys[10] = true,
-            KeyCode::F => self.cpu.pressed_keys[11] = true,
-            KeyCode::Z => self.cpu.pressed_keys[12] = true,
-            KeyCode::X => self.cpu.pressed_keys[13] = true,
-            KeyCode::C => self.cpu.pressed_keys[14] = true,
-            KeyCode::V => self.cpu.pressed_keys[15] = true,
             KeyCode::M => {
                 if self.step_mode {
                     println!("Exiting step mode!");
@@ -136,42 +146,15 @@ impl event::EventHandler<ggez::GameError> for GameState {
                     println!("Entering step mode! Press ENTER/RETURN to step forward, or press S again to exit step mode.");
                     self.step_mode = true;
                 }
-            },
-            KeyCode::Return =>  {
+            }
+            KeyCode::Return => {
                 if self.step_mode {
                     self.cpu.tick();
                     self.cycles += 1;
+                    println!("{}", self.cycles);
                 }
             }
-            _ => {},
-        }
-    }
-
-    /// key_down_event gets fired when a key gets pressed.
-    fn key_up_event(
-        &mut self,
-        _ctx: &mut Context,
-        keycode: KeyCode,
-        _mods: KeyMods,
-    ) {
-        match keycode {
-            KeyCode::Key1 => self.cpu.pressed_keys[0] = false,
-            KeyCode::Key2 => self.cpu.pressed_keys[1] = false,
-            KeyCode::Key3 => self.cpu.pressed_keys[2] = false,
-            KeyCode::Key4 => self.cpu.pressed_keys[3] = false,
-            KeyCode::Q => self.cpu.pressed_keys[4] = false,
-            KeyCode::W => self.cpu.pressed_keys[5] = false,
-            KeyCode::E => self.cpu.pressed_keys[6] = false,
-            KeyCode::R => self.cpu.pressed_keys[7] = false,
-            KeyCode::A => self.cpu.pressed_keys[8] = false,
-            KeyCode::S => self.cpu.pressed_keys[9] = false,
-            KeyCode::D => self.cpu.pressed_keys[10] = false,
-            KeyCode::F => self.cpu.pressed_keys[11] = false,
-            KeyCode::Z => self.cpu.pressed_keys[12] = false,
-            KeyCode::X => self.cpu.pressed_keys[13] = false,
-            KeyCode::C => self.cpu.pressed_keys[14] = false,
-            KeyCode::V => self.cpu.pressed_keys[15] = false,
-            _ => {},
+            _ => {}
         }
     }
 }
@@ -187,7 +170,6 @@ fn main() -> GameResult {
 
     // Next we create a new instance of our GameState struct, which implements EventHandler
     let state = GameState::new();
-    state.cpu.stack_print();
     // And finally we actually run our game, passing in our context and state.
     event::run(ctx, events_loop, state)
 }
