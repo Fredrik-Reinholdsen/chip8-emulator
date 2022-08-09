@@ -110,7 +110,7 @@ pub struct Cpu {
     /// Keeps track if which cycle the CPU is on
     pub cycle: u64,
     /// The clock speed of the device in Hz
-    clock_speed: f64,
+    pub clock_speed: usize,
     /// A vector that contains all currently held keys.
     /// Used for CPU instructions that do different things
     /// depending on if a certain key is pressed
@@ -125,7 +125,7 @@ pub struct Cpu {
 
 #[allow(dead_code)]
 impl Cpu {
-    pub fn new(clock_speed: f64) -> Self {
+    pub fn new(clock_speed: usize) -> Self {
         Cpu {
             v: [0x00; 16],
             stack: [0_u16; 16],
@@ -144,6 +144,7 @@ impl Cpu {
         }
     }
 
+    //Functions that parse out operation arguments from opcode
     fn nnn(&mut self) -> u16 {
         self.inst & 0x0FFF
     }
@@ -164,11 +165,16 @@ impl Cpu {
         (self.inst & 0x000F) as u8
     }
 
+    // Dumps the state of the CPU memory and stack to stdout
     pub fn core_dump(&self) {
         println!("ERROR!\n Core dump:\n\tCycles: {}", self.cycle);
         println!("\tStack Pointer: {}", self.sp);
         self.stack_print();
         self.ram_print();
+    }
+
+    pub fn set_hold_mode(&mut self, state: bool) {
+        self.hold_flag = state;
     }
     //Resets the entire CPU to its initial state
     pub fn reset(&mut self) {
@@ -408,7 +414,7 @@ impl Cpu {
             self.sleep();
         }
         // Update sound timers if every 1/60 seconds
-        let cycles_per_60hz = ((1.0 / 60.0) / (1.0 / self.clock_speed)).round() as u64;
+        let cycles_per_60hz = ((1.0 / 60.0) / (1.0 / self.clock_speed as f64)).round() as u64;
         if self.cycle % cycles_per_60hz == 0 {
             self.update_timers();
         }

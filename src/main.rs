@@ -1,15 +1,28 @@
+/*
+    project: CHIP-8 Emulator
+    author: Fredrik Reinholdsen
+    email: fredrik.reinholdsen@gmail.com
+    gitlab: https://gitlab.com/fredrik.reinholdsen
+
+    info:
+        An emulator of the CHIP-8 virtual-machine/interpreter from 1970.
+        It is essentially an interpreted programming language, designed
+        mainly for games. Programs run on a CHIP-8 virtual machine.
+*/
 pub mod cpu;
 
 use cpu::Cpu;
+use ggez_egui::{EguiBackend, egui};
 use ggez::{
     event, graphics,
     graphics::{DrawParam, Drawable},
     input::keyboard::{is_key_pressed, KeyCode, KeyMods},
+    input::mouse::MouseButton,
     Context, GameResult,
 };
 
 const FPS: usize = 60;
-const CLOCK_SPEED: f64 = 500.0;
+const DEFAULT_CLOCK_SPEED: usize = 500;
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -56,7 +69,7 @@ impl Chip8Display {
         self.screen = [[false; DISPLAY_WIDTH]; DISPLAY_HEIGHT];
     }
 
-    pub fn draw(&self, ctx: &mut Context) -> GameResult {
+    pub fn draw(&mut self, ctx: &mut Context) -> GameResult {
         // Clears the terminal before printing the display
         (0..DISPLAY_HEIGHT).into_iter().for_each(|row| {
             (0..DISPLAY_WIDTH).into_iter().for_each(|col| {
@@ -79,39 +92,63 @@ impl Chip8Display {
 }
 
 struct GameState {
+    egui_backend: EguiBackend,
     cpu: cpu::Cpu,
     // Number of CPU cycles/ticks executed
     cycles: u128,
     // Step through CPU ticks, one a the time
-    step_mode: bool,
+    show_menu: bool,
 }
 
 impl GameState {
     fn new() -> Self {
-        let mut cpu = Cpu::new(CLOCK_SPEED);
+        let mut cpu = Cpu::new(DEFAULT_CLOCK_SPEED);
         match cpu.load_rom("roms/Pong (alt).ch8") {
             Ok(..) => {}
             Err(e) => panic!("Failed to load ROM!\n{}", e),
         }
         GameState {
+            egui_backend: EguiBackend::default(),
             cpu,
             cycles: 0,
-            step_mode: false,
+            show_menu: false,
         }
     }
-}
 
+    // Draws the egui window
+    fn draw_egui(&mut self, ctx: &mut Context) -> GameResult {
+        let mut egui_ctx = self.egui_backend.ctx();
+            egui::Window::new("Options").open(&mut self.show_menu).show(&egui_ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("Pause").clicked() {
+                        self.cpu.set_hold_mode(true);
+                    }
+                    if ui.button("Play").clicked() {
+                        self.cpu.set_hold_mode(false);
+                    }
+                });
+                ui.separator();
+                ui.label("CPU Clock Speed:");
+                // Slider that changes the clock speed of the emulation
+                // thus speeding up or slowing down the game
+                ui.add(egui::Slider::new(&mut self.cpu.clock_speed, 50..=2000));
+                if ui.button("Quit").clicked() {
+                    ggez::event::quit(ctx)
+                }
+            });
+            Ok(())
+    }
+}
 impl event::EventHandler<ggez::GameError> for GameState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
+        self.draw_egui(ctx)?;
         for (i, key) in KEYS.iter().enumerate() {
             self.cpu.pressed_keys[i] = is_key_pressed(ctx, *key);
         }
-        if !self.step_mode {
-            while ggez::timer::check_update_time(ctx, CLOCK_SPEED as u32) {
-                self.cpu.tick();
-                self.cycles += 1;
-        }
-        let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / CLOCK_SPEED)).round() as u128;
+        while ggez::timer::check_update_time(ctx, self.cpu.clock_speed as u32) {
+            self.cpu.tick();
+            self.cycles += 1;
+        let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / self.cpu.clock_speed as f64)).round() as u128;
         if self.cycles % cycles_per_frame == 0 {
             self.draw(ctx)?;
         }
@@ -124,6 +161,7 @@ impl event::EventHandler<ggez::GameError> for GameState {
         // First we create a canvas that renders to the frame, and clear it to a (sort of) green color
         graphics::clear(ctx, [0.1, 0.1, 0.15, 1.0].into());
         self.cpu.display.draw(ctx)?;
+        graphics::draw(ctx, &self.egui_backend, graphics::DrawParam::default());
         //self.cpu.display.draw(&mut canvas);
         graphics::present(ctx)
     }
@@ -133,34 +171,48 @@ impl event::EventHandler<ggez::GameError> for GameState {
         &mut self,
         _ctx: &mut Context,
         keycode: KeyCode,
-        _mods: KeyMods,
+        keymods: KeyMods,
         _repeat: bool,
     ) {
+        self.egui_backend.input.key_down_event(keycode, keymods);
         match keycode {
-            KeyCode::M => {
-                if self.step_mode {
-                    println!("Exiting step mode!");
-                    self.step_mode = false;
-                } else {
-                    println!("Entering step mode! Press ENTER/RETURN to step forward, or press S again to exit step mode.");
-                    self.step_mode = true;
-                }
-            }
+            // Toggles the menu
             KeyCode::Return => {
-                if self.step_mode {
-                    self.cpu.tick();
-                    self.cycles += 1;
-                    println!("{}", self.cycles);
-                }
+                self.show_menu = !self.show_menu;
+                println!("{}", self.show_menu);
             }
             _ => {}
         }
     }
+
+    // Input
+    fn resize_event(&mut self, ctx: &mut ggez::Context, width: f32, height: f32) {	
+		self.egui_backend.input.resize_event(width, height);
+		let rect = ggez::graphics::Rect::new(0.0, 0.0, width, height);
+		ggez::graphics::set_screen_coordinates(ctx, rect).unwrap();
+    }
+
+    fn mouse_button_up_event(&mut self, _ctx: &mut ggez::Context, button: ggez::event::MouseButton, _x: f32, _y: f32) {
+        self.egui_backend.input.mouse_button_up_event(button);
+    }
+
+    fn mouse_button_down_event(&mut self, _ctx: &mut ggez::Context, button: ggez::event::MouseButton, _x: f32, _y: f32) {
+        self.egui_backend.input.mouse_button_down_event(button);
+      }
+
+    fn mouse_wheel_event(&mut self, _ctx: &mut ggez::Context, x: f32, y: f32) {
+        self.egui_backend.input.mouse_wheel_event(x, y);
+    }
+
+    fn mouse_motion_event(&mut self, _ctx: &mut ggez::Context, x: f32, y: f32, _dx: f32, _dy: f32) {
+        self.egui_backend.input.mouse_motion_event(x, y);
+    }
+
 }
 
 fn main() -> GameResult {
     let (ctx, events_loop) = ggez::ContextBuilder::new("chip8", "Fredrik Reinholdsen")
-        .window_setup(ggez::conf::WindowSetup::default().title("Chip8 Emulator!"))
+        .window_setup(ggez::conf::WindowSetup::default().title("CHIP-8 Emulator"))
         .window_mode(
             ggez::conf::WindowMode::default()
                 .dimensions(SCREEN_SIZE.0 as f32, SCREEN_SIZE.1 as f32),
