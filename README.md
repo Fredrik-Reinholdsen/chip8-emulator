@@ -1,6 +1,8 @@
 
 # CHIP-8 Emulator
-This projects implements an emulator of the CHIP-8 virtual-machine/interpreter from 1970, written in Rust. CHIP-8 is essentially an interpreted programming language, designed mainly for games. Programs run on a CHIP-8 virtual machine. The display and GUI elements are written using the *ggez* and *egui* crates. Included in the repository is a number of classic CHIP-8 game ROMs, including Pong, Breakout, Tetris, etc.That can be run using the emulator. *NOTE*: Just like the 1970s original, the emulator is a bit flickery. To keep the emulation bare-bones, and true to the original, I did not fix this. 
+This projects implements an emulator of the CHIP-8 virtual-machine/interpreter from 1970, written in Rust. CHIP-8 is essentially an interpreted programming language, designed mainly for games. Programs run on a CHIP-8 virtual machine. The display and GUI elements are written using the *ggez* and *egui* crates. Included in the repository is a number of classic CHIP-8 game ROMs, including Pong, Breakout, Tetris, etc.That can be run using the emulator. *NOTE*: Just like the 1970s original, the emulator is a bit flickery. To keep the emulation bare-bones, and true to the original, I did not fix this.
+
+![A GIF of some Breakout gamplay](/Breakout.gif "GIF")
 
 ## Build Instruction
 Building the project requires Rust and Cargo, most easily installed using [rustup](https://rustup.rs).
@@ -13,9 +15,10 @@ Or to build and run directly, run:
 cargo run --release
 ```
 
-## Running
-The original CHIP-8 is designed to work with a keyboard of 16 keys, one for each hex digit, from 0 to F. These keys are mapped to regular keyboard keys as indicated below.
+## Functionality
+All of the 35 original CHIP-8 op-codes/instructions are implemented in the emulator. The original CHIP-8 display and keyboard are emulated. The original CHIP-8 is designed to work with a keyboard of 16 keys, one for each hex digit, from 0 to F. These keys are mapped to regular keyboard keys as indicated below.
 
+```
 Original               Emulator
 1 2 3 C                1 2 3 4
 4 5 6 D                Q W E R
