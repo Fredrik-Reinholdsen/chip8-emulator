@@ -477,7 +477,7 @@ impl Cpu {
         }
     }
 
-    // Skips the nex instruction if Vx == Vy
+    // Skips the next instruction if Vx == Vy
     fn sexy(&mut self, vx: u8, vy: u8) {
         if self.v[vx as usize] == self.v[vy as usize] {
             self.pc += 2;

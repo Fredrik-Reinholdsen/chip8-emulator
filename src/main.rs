@@ -23,7 +23,7 @@ use ggez::{
 
 const FPS: usize = 60;
 const DEFAULT_CLOCK_SPEED: usize = 500;
-const ROM: &str = "roms/Breakout [Carmelo Cortez, 1979].ch8";
+const ROM: &str = "roms/1dcell.ch8";
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -120,7 +120,7 @@ struct GameState {
 impl GameState {
     fn new() -> Self {
         let mut cpu = Cpu::new(DEFAULT_CLOCK_SPEED);
-        match cpu.load_rom("roms/Breakout [Carmelo Cortez, 1979].ch8") {
+        match cpu.load_rom(ROM) {
             Ok(..) => {}
             Err(e) => panic!("Failed to load ROM!\n{}", e),
         }
