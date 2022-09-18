@@ -2,16 +2,19 @@
  *    Created     - 2022-06-27 10:12:41
  *    Updated     - 2022-06-27 10:12:41
  *    Author      - Fredrik Reinholdsen
- *    Project     - ###################
- *    Description - ###################
+ *    Project     - CHIP-8 Emulator
+ *    Description - Implements the  CHIP-8 interpreter,
+*                   and models it the virtual CPU.
+ *                  
  */
 use crate::{Chip8Display, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rand::Rng;
 use std::fs::File;
 use std::io::Read;
 
+// Memory location from where the intrepreter
+// starts loading programs
 const PROGRAM_START: u16 = 0x200;
-const ETI_START: u16 = 0x600;
 
 // Converts a byte into an array of bits as bools
 // Ex: 0xAA -> [true, false, true, false, true, false, true, false]
@@ -29,9 +32,9 @@ struct Ram {
 }
 
 impl Ram {
+    // Initializes the RAM, as all zeros except for 0x00 t0 0x1FF
+    // which are initialized to hold sprites for hex digits 0 to F
     pub fn new() -> Self {
-        // Initializes the RAM, as all zeros except for 0x00 t0 0x1FF
-        // which are initialized to hold sprites for hex digits 0 to F
         let mut data = [0_u8; 4096];
         // Digit 0
         data[0..5].copy_from_slice(&[0xF0, 0x90, 0x90, 0x90, 0xF0]);
@@ -48,23 +51,23 @@ impl Ram {
         // Digit 6
         data[30..35].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x90, 0xF0]);
         // Digit 7
-        data[40..45].copy_from_slice(&[0xF0, 0x10, 0x20, 0x40, 0x40]);
+        data[35..40].copy_from_slice(&[0xF0, 0x10, 0x20, 0x40, 0x40]);
         // Digit 8
-        data[45..50].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0xF0]);
+        data[40..45].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0xF0]);
         // Digit 9
-        data[50..55].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x10, 0xF0]);
+        data[45..50].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x10, 0xF0]);
         // Digit A
-        data[55..60].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0x90]);
+        data[50..55].copy_from_slice(&[0xF0, 0x90, 0xF0, 0x90, 0x90]);
         // Digit B
-        data[60..65].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
+        data[55..60].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
         // Digit C
-        data[65..70].copy_from_slice(&[0xF0, 0x80, 0x80, 0x80, 0xF0]);
+        data[60..65].copy_from_slice(&[0xF0, 0x80, 0x80, 0x80, 0xF0]);
         // Digit D
-        data[70..75].copy_from_slice(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]);
+        data[65..70].copy_from_slice(&[0xE0, 0x90, 0x90, 0x90, 0xE0]);
         // Digit E
-        data[80..85].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
+        data[70..75].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
         // Digit F
-        data[85..90].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]);
+        data[75..80].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]);
         Ram { data }
     }
 }
@@ -123,7 +126,6 @@ pub struct Cpu {
     inst: u16,
 }
 
-#[allow(dead_code)]
 impl Cpu {
     pub fn new(clock_speed: usize) -> Self {
         Cpu {
@@ -216,8 +218,7 @@ impl Cpu {
             panic!("Stack underflow!");
         } else {
             self.sp -= 1;
-            let ret_val = self.stack[self.sp as usize];
-            ret_val
+            self.stack[self.sp as usize]
         }
     }
 
@@ -541,7 +542,7 @@ impl Cpu {
     // and Vx is then right-shifted by 1 (divided by 2)
     fn shr(&mut self, vx: u8) {
         self.v[0xF] = self.v[vx as usize] & 0x01;
-        self.v[vx as usize] = self.v[vx as usize] >> 1;
+        self.v[vx as usize] >>= 1;
     }
 
     // Subtracts Vx from Vy. If Vy > Vx, Vf is set to 1
@@ -560,7 +561,7 @@ impl Cpu {
     // and Vx is then left-shifted by 1 (multiplied by 2)
     fn shl(&mut self, vx: u8) {
         self.v[0xF] = (self.v[vx as usize] & 0x80) >> 7;
-        self.v[vx as usize] = self.v[vx as usize] << 1;
+        self.v[vx as usize] <<= 1;
     }
 
     // Skips the next instruction if Vx != Vy
@@ -690,12 +691,4 @@ impl Cpu {
             self.v[j] = self.ram.data[self.i as usize + j];
         }
     }
-}
-
-fn disassemble(input: String) -> Result<String, String> {
-    Err("Not yet implemented".to_string())
-}
-
-fn opcode_to_string() -> String {
-    panic!("Not yet implemented!"); 
 }

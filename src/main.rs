@@ -15,7 +15,7 @@ use cpu::Cpu;
 use ggez_egui::{EguiBackend, egui};
 use ggez::{
     event, graphics,
-    graphics::{DrawParam, Drawable},
+    graphics::DrawParam,
     input::keyboard::{is_key_pressed, KeyCode, KeyMods},
     input::mouse::MouseButton,
     Context, GameResult,
@@ -23,6 +23,7 @@ use ggez::{
 
 const FPS: usize = 60;
 const DEFAULT_CLOCK_SPEED: usize = 500;
+const ROM: &str = "roms/Breakout [Carmelo Cortez, 1979].ch8";
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
@@ -31,22 +32,25 @@ const PIXEL_SIZE: (f32, f32) = (
     SCREEN_SIZE.0 / DISPLAY_WIDTH as f32,
     SCREEN_SIZE.1 / DISPLAY_HEIGHT as f32,
 );
+
+// Keys from 0-F that are used to emulate the
+// 16-key chip-8 keyboard
 const KEYS: [KeyCode; 16] = [
+    KeyCode::X,
     KeyCode::Key1,
     KeyCode::Key2,
     KeyCode::Key3,
-    KeyCode::Key4,
     KeyCode::Q,
     KeyCode::W,
     KeyCode::E,
-    KeyCode::R,
     KeyCode::A,
     KeyCode::S,
     KeyCode::D,
-    KeyCode::F,
     KeyCode::Z,
-    KeyCode::X,
     KeyCode::C,
+    KeyCode::Key4,
+    KeyCode::R,
+    KeyCode::F,
     KeyCode::V,
 ];
 
@@ -58,6 +62,16 @@ pub struct Chip8Display {
     screen: [[bool; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
 }
 
+// Default implementation for display
+impl Default for Chip8Display {
+    fn default() -> Self {
+        Chip8Display {
+            screen: [[false; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
+        }
+    }
+
+}
+
 impl Chip8Display {
     // Clears the screen
     pub fn new() -> Self {
@@ -65,10 +79,13 @@ impl Chip8Display {
             screen: [[false; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
         }
     }
+
+    // Clears the screen
     pub fn clear(&mut self) {
         self.screen = [[false; DISPLAY_WIDTH]; DISPLAY_HEIGHT];
     }
 
+    // ggez draw method for drawing the screen to the canvas
     pub fn draw(&mut self, ctx: &mut Context) -> GameResult {
         // Clears the terminal before printing the display
         (0..DISPLAY_HEIGHT).into_iter().for_each(|row| {
@@ -103,7 +120,7 @@ struct GameState {
 impl GameState {
     fn new() -> Self {
         let mut cpu = Cpu::new(DEFAULT_CLOCK_SPEED);
-        match cpu.load_rom("roms/Pong (alt).ch8") {
+        match cpu.load_rom("roms/Breakout [Carmelo Cortez, 1979].ch8") {
             Ok(..) => {}
             Err(e) => panic!("Failed to load ROM!\n{}", e),
         }
@@ -117,7 +134,7 @@ impl GameState {
 
     // Draws the egui window
     fn draw_egui(&mut self, ctx: &mut Context) -> GameResult {
-        let mut egui_ctx = self.egui_backend.ctx();
+        let egui_ctx = self.egui_backend.ctx();
             egui::Window::new("Options").open(&mut self.show_menu).show(&egui_ctx, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("Pause").clicked() {
@@ -125,6 +142,11 @@ impl GameState {
                     }
                     if ui.button("Play").clicked() {
                         self.cpu.set_hold_mode(false);
+                    }
+                    if ui.button("Restart").clicked() {
+                        self.cpu.reset();
+                        self.cpu.load_rom(ROM)
+                            .expect("Failed to load ROM!");
                     }
                 });
                 ui.separator();
@@ -139,21 +161,24 @@ impl GameState {
             Ok(())
     }
 }
+
+// Implementations of the required ggez methods
 impl event::EventHandler<ggez::GameError> for GameState {
+    // Updates the state by ticking the CPU,
+    // fetching the next, 
+    // and instruction and executing that instruction
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        self.draw_egui(ctx)?;
-        for (i, key) in KEYS.iter().enumerate() {
-            self.cpu.pressed_keys[i] = is_key_pressed(ctx, *key);
-        }
         while ggez::timer::check_update_time(ctx, self.cpu.clock_speed as u32) {
             self.cpu.tick();
             self.cycles += 1;
-        let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / self.cpu.clock_speed as f64)).round() as u128;
-        if self.cycles % cycles_per_frame == 0 {
-            self.draw(ctx)?;
+            let cycles_per_frame = ((1.0 / FPS as f64) / (1.0 / self.cpu.clock_speed as f64)).round() as u128;
+            if self.cycles % cycles_per_frame == 0 {
+                self.draw(ctx)?;
+                self.draw_egui(ctx)?;
+            }
         }
-    }
-    Ok(())
+        ctx.timer_context.tick();
+        Ok(())
     }
 
     /// draw is where we should actually render the game's current state.
@@ -161,9 +186,11 @@ impl event::EventHandler<ggez::GameError> for GameState {
         // First we create a canvas that renders to the frame, and clear it to a (sort of) green color
         graphics::clear(ctx, [0.1, 0.1, 0.15, 1.0].into());
         self.cpu.display.draw(ctx)?;
-        graphics::draw(ctx, &self.egui_backend, graphics::DrawParam::default());
+        graphics::draw(ctx, &self.egui_backend, graphics::DrawParam::default())?;
         //self.cpu.display.draw(&mut canvas);
-        graphics::present(ctx)
+        graphics::present(ctx)?;
+        ggez::timer::yield_now();
+        Ok(())
     }
 
     /// key_down_event gets fired when a key gets pressed.
@@ -179,13 +206,34 @@ impl event::EventHandler<ggez::GameError> for GameState {
             // Toggles the menu
             KeyCode::Return => {
                 self.show_menu = !self.show_menu;
-                println!("{}", self.show_menu);
             }
-            _ => {}
+            _ => {
+                // Lets the CPU know that a key is pressed
+                for (i, key) in KEYS.iter().enumerate() {
+                    if key == &keycode {
+                        self.cpu.pressed_keys[i] = true;
+                        return;
+                    }
+                }
+            }
         }
     }
 
-    // Input
+    fn key_up_event(
+        &mut self,
+        _ctx: &mut Context,
+        keycode: KeyCode,
+        _keymods: KeyMods,
+    ) {
+        for (i, key) in KEYS.iter().enumerate() {
+            if key == &keycode {
+                self.cpu.pressed_keys[i] = false;
+                return;
+            }
+        }
+    }
+
+    // Input methods required for the egui GUI elements
     fn resize_event(&mut self, ctx: &mut ggez::Context, width: f32, height: f32) {	
 		self.egui_backend.input.resize_event(width, height);
 		let rect = ggez::graphics::Rect::new(0.0, 0.0, width, height);
@@ -219,8 +267,7 @@ fn main() -> GameResult {
         )
         .build()?;
 
-    // Next we create a new instance of our GameState struct, which implements EventHandler
+    // Initialize game state struct and start running game
     let state = GameState::new();
-    // And finally we actually run our game, passing in our context and state.
     event::run(ctx, events_loop, state)
 }
